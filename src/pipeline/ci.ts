@@ -1,5 +1,5 @@
 import * as github from "../integrations/github.js";
-import { runClaude } from "../integrations/claude.js";
+import { runClaudeWithResume } from "../integrations/claude.js";
 import * as linear from "../integrations/linear.js";
 import { phaseLogger } from "../utils/logger.js";
 import type { PipelineContext, PhaseResult } from "./index.js";
@@ -167,7 +167,7 @@ ${ciLogs.slice(0, 8000)}
 - Status de verificación local`;
 
   try {
-    const result = await runClaude({
+    const result = await runClaudeWithResume({
       prompt,
       cwd: ctx.worktreePath,
       model: "opus",
@@ -175,6 +175,7 @@ ${ciLogs.slice(0, 8000)}
       timeoutMs: 600_000,
       outputFormat: "json",
       dangerouslySkipPermissions: true,
+      maxResumes: 2,
     });
 
     return {

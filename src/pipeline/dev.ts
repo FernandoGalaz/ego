@@ -1,4 +1,4 @@
-import { runClaude } from "../integrations/claude.js";
+import { runClaudeWithResume } from "../integrations/claude.js";
 import * as linear from "../integrations/linear.js";
 import { phaseLogger } from "../utils/logger.js";
 import { buildLessonsPrompt } from "../utils/lessons.js";
@@ -50,7 +50,7 @@ Reporta: archivos modificados, commits creados, tests ejecutados (pass/fail), cu
   const lessonsPrompt = buildLessonsPrompt(ctx.project.repo);
 
   try {
-    const result = await runClaude({
+    const result = await runClaudeWithResume({
       prompt: prompt + lessonsPrompt,
       cwd: ctx.worktreePath,
       model: "opus",
@@ -58,6 +58,8 @@ Reporta: archivos modificados, commits creados, tests ejecutados (pass/fail), cu
       timeoutMs: 1_800_000, // 30 min
       outputFormat: "json",
       dangerouslySkipPermissions: true,
+      maxResumes: 3,
+      resumePrompt: "Continúa donde quedaste. Revisa qué queda pendiente del plan y sigue implementando.",
     });
 
     if (!result.success) {

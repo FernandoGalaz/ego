@@ -1,4 +1,4 @@
-import { runClaude, type ClaudeResult } from "../integrations/claude.js";
+import { runClaudeWithResume, type ClaudeResult } from "../integrations/claude.js";
 import * as linear from "../integrations/linear.js";
 import { phaseLogger } from "../utils/logger.js";
 import { buildLessonsPrompt } from "../utils/lessons.js";
@@ -134,7 +134,7 @@ ${ctx.comments ?? ""}
   const lessonsPrompt = buildLessonsPrompt(ctx.project.repo);
 
   try {
-    const result = await runClaude({
+    const result = await runClaudeWithResume({
       prompt: prompt + lessonsPrompt,
       cwd: ctx.worktreePath,
       model: "opus",
@@ -143,6 +143,7 @@ ${ctx.comments ?? ""}
       outputFormat: "json",
       jsonSchema: PLAN_SCHEMA,
       dangerouslySkipPermissions: true,
+      maxResumes: 2,
     });
 
     if (!result.success) {

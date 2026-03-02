@@ -1,6 +1,6 @@
 import * as linear from "../integrations/linear.js";
 import * as sentry from "../integrations/sentry.js";
-import { runClaude } from "../integrations/claude.js";
+import { runClaudeWithResume } from "../integrations/claude.js";
 import { notify } from "../integrations/notifications.js";
 import { cleanupWorktree } from "./worktree.js";
 import { phaseLogger } from "../utils/logger.js";
@@ -56,7 +56,7 @@ Usa este formato:
 IMPORTANTE: Máximo 150 líneas. Sé conciso. Prioriza lo útil para futuras ejecuciones.`;
 
   try {
-    const result = await runClaude({
+    const result = await runClaudeWithResume({
       prompt,
       cwd: ctx.worktreePath,
       model: "haiku",
@@ -64,6 +64,7 @@ IMPORTANTE: Máximo 150 líneas. Sé conciso. Prioriza lo útil para futuras eje
       timeoutMs: 120_000,
       outputFormat: "text",
       dangerouslySkipPermissions: true,
+      maxResumes: 1,
     });
 
     if (result.success && result.output.trim()) {

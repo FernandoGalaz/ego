@@ -284,6 +284,77 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
 }
 
 /**
+ * Run Claude with automatic session resume on max_turns.
+ * When Claude hits the turn limit, resumes the same session up to maxResumes times.
+ * Returns aggregated turns across all attempts.
+ */
+export async function runClaudeWithResume(
+  options: ClaudeOptions & { maxResumes?: number; resumePrompt?: string }
+): Promise<ClaudeResult> {
+  const { maxResumes = 2, resumePrompt = "Continúa donde quedaste. Revisa qué queda pendiente y termina.", ...baseOptions } = options;
+  let totalTurns = 0;
+  let totalCost = 0;
+  let lastSessionId: string | undefined;
+  const start = Date.now();
+
+  for (let attempt = 0; attempt <= maxResumes; attempt++) {
+    const isResume = attempt > 0 && lastSessionId;
+
+    if (isResume) {
+      logger.info(
+        { attempt, maxResumes, sessionId: lastSessionId, totalTurns },
+        "Resuming Claude session after max_turns"
+      );
+    }
+
+    const result = await runClaude({
+      ...baseOptions,
+      prompt: isResume ? resumePrompt : baseOptions.prompt,
+      resumeSessionId: isResume ? lastSessionId : undefined,
+    });
+
+    totalTurns += result.turnsUsed ?? 0;
+    totalCost += result.costUsd ?? 0;
+    lastSessionId = result.sessionId;
+
+    // Success — return with aggregated stats
+    if (result.success) {
+      return {
+        ...result,
+        turnsUsed: totalTurns,
+        costUsd: totalCost,
+        durationMs: Date.now() - start,
+      };
+    }
+
+    // error_max_turns with a session we can resume — try again
+    const isMaxTurns = result.error?.includes("error_max_turns");
+    if (isMaxTurns && result.sessionId && attempt < maxResumes) {
+      continue;
+    }
+
+    // Non-retriable failure or retries exhausted
+    return {
+      ...result,
+      turnsUsed: totalTurns,
+      costUsd: totalCost,
+      durationMs: Date.now() - start,
+      error: result.error + (attempt > 0 ? ` (after ${attempt} resume(s), ${totalTurns} total turns)` : ""),
+    };
+  }
+
+  // Safety net
+  return {
+    success: false,
+    output: "",
+    error: `Max resumes exhausted (${totalTurns} total turns)`,
+    turnsUsed: totalTurns,
+    costUsd: totalCost,
+    durationMs: Date.now() - start,
+  };
+}
+
+/**
  * Run a Claude subagent by spawning claude with the agent's own prompt.
  * This doesn't use `.claude/agents/` files — those are used when claude
  * is running interactively. For programmatic use, we pass the prompt directly.
