@@ -50,17 +50,37 @@ export async function waitForCI(
   timeoutMs: number = 600_000
 ): Promise<{ success: boolean; logs?: string }> {
   try {
-    // Wait for the run to appear
-    await exec(
-      "gh",
-      ["run", "list", "--branch", branch, "--limit", "1", "--json", "databaseId,status"],
-      { cwd, timeout: 30_000 }
-    );
+    // Wait for the workflow run to appear (poll up to 60s)
+    let runId: string | null = null;
+    const pollStart = Date.now();
 
-    // Watch the run
-    const { stdout, stderr } = await exec(
+    while (!runId && Date.now() - pollStart < 60_000) {
+      const { stdout } = await exec(
+        "gh",
+        ["run", "list", "--branch", branch, "--limit", "1", "--json", "databaseId,status"],
+        { cwd, timeout: 30_000 }
+      );
+
+      const runs = JSON.parse(stdout) as Array<{ databaseId: number; status: string }>;
+      if (runs.length > 0) {
+        runId = String(runs[0].databaseId);
+        break;
+      }
+
+      // Wait 5s before retrying
+      await new Promise((r) => setTimeout(r, 5_000));
+    }
+
+    if (!runId) {
+      return { success: false, logs: "No CI run found for branch" };
+    }
+
+    logger.info({ branch, runId }, "Found CI run — watching");
+
+    // Watch the specific run by ID
+    const { stdout } = await exec(
       "gh",
-      ["run", "watch", "--branch", branch, "--exit-status"],
+      ["run", "watch", runId, "--exit-status"],
       { cwd, timeout: timeoutMs }
     );
 
@@ -69,15 +89,23 @@ export async function waitForCI(
     const err = error as Error & { stdout?: string; stderr?: string };
     logger.warn({ branch, error: err.message }, "CI failed");
 
-    // Get failure logs
+    // Try to get the run ID for failure logs
     let logs = err.stdout ?? err.stderr ?? "";
     try {
-      const { stdout: failLogs } = await exec(
+      const { stdout: listOut } = await exec(
         "gh",
-        ["run", "view", "--branch", branch, "--log-failed"],
+        ["run", "list", "--branch", branch, "--limit", "1", "--json", "databaseId"],
         { cwd, timeout: 30_000 }
       );
-      logs = failLogs;
+      const runs = JSON.parse(listOut) as Array<{ databaseId: number }>;
+      if (runs.length > 0) {
+        const { stdout: failLogs } = await exec(
+          "gh",
+          ["run", "view", String(runs[0].databaseId), "--log-failed"],
+          { cwd, timeout: 30_000 }
+        );
+        logs = failLogs;
+      }
     } catch {
       // Can't get logs, use what we have
     }
@@ -100,9 +128,18 @@ export async function mergePR(
 
 export async function getCILogs(branch: string, cwd: string): Promise<string> {
   try {
+    // Get the latest run ID for this branch
+    const { stdout: listOut } = await exec(
+      "gh",
+      ["run", "list", "--branch", branch, "--limit", "1", "--json", "databaseId"],
+      { cwd, timeout: 30_000 }
+    );
+    const runs = JSON.parse(listOut) as Array<{ databaseId: number }>;
+    if (runs.length === 0) return "No CI runs found for branch";
+
     const { stdout } = await exec(
       "gh",
-      ["run", "view", "--branch", branch, "--log-failed"],
+      ["run", "view", String(runs[0].databaseId), "--log-failed"],
       { cwd, timeout: 30_000 }
     );
     return stdout;
