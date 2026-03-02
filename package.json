@@ -1,0 +1,40 @@
+{
+  "name": "ego",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "ego": "tsx --env-file=.env src/index.ts",
+    "task": "tsx src/index.ts task",
+    "cancel": "tsx src/index.ts cancel",
+    "unlock": "tsx src/index.ts unlock",
+    "status": "tsx src/index.ts status",
+    "server": "tsx src/server.ts",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "better-sqlite3": "^11.0.0",
+    "bullmq": "^5.0.0",
+    "commander": "^12.0.0",
+    "drizzle-orm": "^0.36.0",
+    "hono": "^4.0.0",
+    "ioredis": "^5.10.0",
+    "nanoid": "^5.0.0",
+    "pino": "^9.0.0",
+    "pino-pretty": "^11.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.28.0",
+    "eslint": "^9.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}

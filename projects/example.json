@@ -1,0 +1,19 @@
+{
+  "name": "KubuzAi",
+  "repo": "/Users/fernando/Documents/workspace/agente-agente",
+  "worktreesDir": "/Users/fernando/Documents/workspace/worktrees/KubuzAi",
+  "baseBranch": "development",
+  "linear": {
+    "teamId": "b9cecd88-7d45-4e8d-8e61-93c3d09d9bb6",
+    "projectId": "167fe8d2-08fc-43d0-accc-8fe461fbbcea"
+  },
+  "coolify": {
+    "appId": "abc123",
+    "apiUrl": "https://api-dev.kubuz.ai",
+    "devUrl": "https://dev.kubuz.ai"
+  },
+  "github": {
+    "repo": "FernandoGalaz/agente-agente",
+    "ciWorkflow": ".github/workflows/ci.yml"
+  }
+}

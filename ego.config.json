@@ -1,0 +1,17 @@
+{
+  "redis": {
+    "host": "localhost",
+    "port": 6379
+  },
+  "server": {
+    "port": 3847,
+    "host": "0.0.0.0"
+  },
+  "safety": {
+    "maxFailuresPerHour": 5,
+    "maxFailuresPerFile": 3,
+    "sentryPauseSeconds": 300,
+    "cooldownSeconds": 30
+  },
+  "notifications": {}
+}
