@@ -142,6 +142,7 @@ ${ctx.comments ?? ""}
       timeoutMs: 600_000, // 10 min
       outputFormat: "json",
       jsonSchema: PLAN_SCHEMA,
+      dangerouslySkipPermissions: true,
     });
 
     if (!result.success) {

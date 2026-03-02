@@ -130,8 +130,11 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
     { name: "report", execute: executeReport },
   ];
 
+  const pipelineStart = Date.now();
+
   for (const phase of phases) {
-    log.info({ phase: phase.name }, `Starting phase: ${phase.name}`);
+    const elapsed = Math.round((Date.now() - pipelineStart) / 1000);
+    log.info({ phase: phase.name, pipelineElapsed: `${elapsed}s` }, `▶ Starting phase: ${phase.name}`);
     await updateTask(ctx.taskId, { currentPhase: phase.name });
     await logPhase(ctx.taskId, phase.name, "started");
 
@@ -176,7 +179,11 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
       }
 
       await logPhase(ctx.taskId, phase.name, "completed", result);
-      log.info({ phase: phase.name, turns: result.turnsUsed }, "Phase completed");
+      const phaseElapsed = Math.round((result.durationMs ?? 0) / 1000);
+      log.info(
+        { phase: phase.name, turns: result.turnsUsed, duration: `${phaseElapsed}s` },
+        `✔ Phase completed: ${phase.name}`
+      );
     } catch (err) {
       const error = err as Error;
       const result: PhaseResult = { success: false, error: error.message };

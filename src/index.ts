@@ -71,37 +71,90 @@ program
   .command("status")
   .description("Show current task status")
   .option("-p, --project <name>", "Filter by project")
-  .action(async (opts: { project?: string }) => {
+  .option("-d, --detail <taskId>", "Show detailed phase log for a task")
+  .action(async (opts: { project?: string; detail?: string }) => {
     initDb();
     const db = getDb();
 
-    let query = db
+    // Detailed view for a specific task
+    if (opts.detail) {
+      const task = await db.select().from(schema.tasks).where(eq(schema.tasks.id, opts.detail)).limit(1);
+      if (task.length === 0) {
+        console.log(`\nTask ${opts.detail} not found.\n`);
+        await closeDb();
+        return;
+      }
+
+      const t = task[0];
+      const elapsed = t.startedAt ? formatElapsed(new Date(t.startedAt), t.completedAt ? new Date(t.completedAt) : new Date()) : "-";
+
+      console.log(`\n  Task: ${t.id}`);
+      console.log("  " + "─".repeat(60));
+      console.log(`  Project:  ${t.project}`);
+      console.log(`  Title:    ${t.title}`);
+      console.log(`  Status:   ${statusEmoji(t.status)} ${t.status}`);
+      console.log(`  Phase:    ${t.currentPhase ?? "-"}`);
+      console.log(`  Priority: P${t.priority}`);
+      console.log(`  Source:   ${t.source}`);
+      console.log(`  Branch:   ${t.branch ?? "-"}`);
+      console.log(`  Turns:    ${t.turnsUsed ?? 0}`);
+      console.log(`  Elapsed:  ${elapsed}`);
+      if (t.failedPhase) console.log(`  Failed:   ${t.failedPhase}`);
+      if (t.result) console.log(`  Result:   ${t.result.slice(0, 200)}`);
+
+      // Show phase log
+      const phases = await db.select().from(schema.phaseLog).where(eq(schema.phaseLog.taskId, opts.detail)).orderBy(schema.phaseLog.id);
+
+      if (phases.length > 0) {
+        console.log("\n  Phase log:");
+        console.log("  " + "─".repeat(60));
+        for (const p of phases) {
+          const dur = p.durationMs ? `${Math.round(p.durationMs / 1000)}s` : "-";
+          const turns = p.turnsUsed ? ` (${p.turnsUsed} turns)` : "";
+          const icon = p.status === "completed" ? "✅" : p.status === "failed" ? "❌" : "▶️";
+          console.log(`  ${icon} ${p.phase.padEnd(10)} ${p.status.padEnd(10)} ${dur}${turns}`);
+          if (p.error) console.log(`     Error: ${p.error.slice(0, 100)}`);
+        }
+      }
+
+      console.log("  " + "─".repeat(60) + "\n");
+      await closeDb();
+      return;
+    }
+
+    const tasks = await db
       .select()
       .from(schema.tasks)
       .orderBy(desc(schema.tasks.createdAt))
       .limit(10);
 
-    const tasks = await query;
-
     if (tasks.length === 0) {
       console.log("\nNo tasks found.\n");
+      await closeDb();
       return;
     }
 
     console.log("\n  Recent tasks:");
-    console.log("  " + "─".repeat(80));
+    console.log("  " + "─".repeat(90));
 
     for (const task of tasks) {
       if (opts.project && task.project !== opts.project) continue;
 
       const status = statusEmoji(task.status);
       const phase = task.currentPhase ? ` [${task.currentPhase}]` : "";
+      const elapsed = task.status === "working" && task.startedAt
+        ? ` (${formatElapsed(new Date(task.startedAt), new Date())})`
+        : task.startedAt && task.completedAt
+          ? ` (${formatElapsed(new Date(task.startedAt), new Date(task.completedAt))})`
+          : "";
+      const turns = task.turnsUsed ? ` ${task.turnsUsed}t` : "";
       console.log(
-        `  ${status} ${task.id}  ${task.project}  P${task.priority}  ${task.title.slice(0, 50)}${phase}`
+        `  ${status} ${task.id}  ${task.project.padEnd(12)}  P${task.priority}  ${task.title.slice(0, 40).padEnd(40)}${phase}${elapsed}${turns}`
       );
     }
 
-    console.log("  " + "─".repeat(80) + "\n");
+    console.log("  " + "─".repeat(90));
+    console.log("  Use --detail <taskId> for phase-by-phase breakdown\n");
 
     await closeDb();
   });
@@ -194,6 +247,16 @@ program
     resetFailures();
     console.log("\nSafety counters reset.\n");
   });
+
+function formatElapsed(start: Date, end: Date): string {
+  const totalSec = Math.round((end.getTime() - start.getTime()) / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return `${min}m${sec}s`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h${min % 60}m`;
+}
 
 function statusEmoji(status: string): string {
   switch (status) {

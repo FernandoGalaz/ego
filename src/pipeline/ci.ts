@@ -32,13 +32,23 @@ export async function executeCI(ctx: PipelineContext): Promise<PhaseResult> {
 
       log.info({ prUrl }, "PR created");
 
+      // Auto-merge into baseBranch
+      log.info("Auto-merging PR into " + ctx.project.baseBranch);
+      await github.mergePR(prUrl, ctx.worktreePath);
+      log.info("PR merged successfully");
+
       if (ctx.source === "linear" && ctx.sourceId) {
-        await linear.addComment(ctx.sourceId, `✅ **Ego — CI passed**\n\nPR: ${prUrl}`);
+        await linear.addComment(
+          ctx.sourceId,
+          `✅ **Ego — CI passed & merged**\n\n` +
+            `PR: ${prUrl}\n` +
+            `Merged into \`${ctx.project.baseBranch}\``
+        );
       }
 
       return {
         success: true,
-        output: { ciPassed: true, prUrl },
+        output: { ciPassed: true, prUrl, merged: true },
         durationMs: Date.now() - start,
       };
     }
@@ -67,13 +77,23 @@ export async function executeCI(ctx: PipelineContext): Promise<PhaseResult> {
 
         log.info({ prUrl }, "PR created after retry");
 
+        // Auto-merge into baseBranch
+        log.info("Auto-merging PR into " + ctx.project.baseBranch);
+        await github.mergePR(prUrl, ctx.worktreePath);
+        log.info("PR merged successfully after retry");
+
         if (ctx.source === "linear" && ctx.sourceId) {
-          await linear.addComment(ctx.sourceId, `✅ **Ego — CI passed** (after 1 retry)\n\nPR: ${prUrl}`);
+          await linear.addComment(
+            ctx.sourceId,
+            `✅ **Ego — CI passed & merged** (after 1 retry)\n\n` +
+              `PR: ${prUrl}\n` +
+              `Merged into \`${ctx.project.baseBranch}\``
+          );
         }
 
         return {
           success: true,
-          output: { ciPassed: true, retried: true, prUrl },
+          output: { ciPassed: true, retried: true, prUrl, merged: true },
           turnsUsed: retryResult.turnsUsed,
           durationMs: Date.now() - start,
         };

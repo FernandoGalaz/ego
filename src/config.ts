@@ -24,6 +24,7 @@ const ProjectConfigSchema = z.object({
       apiUrl: z.string().url(),
       apiToken: z.string().optional(),
       devUrl: z.string().url(),
+      dockerImageTag: z.string().optional(),
     })
     .optional(),
   github: z.object({

@@ -91,10 +91,10 @@ export async function executeReport(ctx: PipelineContext): Promise<PhaseResult> 
         ctx.sourceId,
         `📊 **Ego — Resumen final**\n\n` +
           `- Estado: ✅ Completado\n` +
-          `- Branch: \`${ctx.branch}\`\n` +
+          `- Branch: \`${ctx.branch}\` → merged into \`${ctx.project.baseBranch}\`\n` +
           `- Turns totales: ${ctx.totalTurns}\n` +
           `- Proyecto: ${ctx.projectName}\n\n` +
-          `La branch está lista para review. Merge manual a main.`
+          `PR merged automáticamente a \`${ctx.project.baseBranch}\`. Deploy en curso.`
       );
 
       await linear.updateIssueState(ctx.sourceId, "Ego Done");

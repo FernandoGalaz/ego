@@ -86,6 +86,18 @@ export async function waitForCI(
   }
 }
 
+export async function mergePR(
+  prUrl: string,
+  cwd: string,
+  method: "merge" | "squash" | "rebase" = "squash"
+): Promise<void> {
+  await exec("gh", ["pr", "merge", prUrl, `--${method}`, "--delete-branch"], {
+    cwd,
+    timeout: 60_000,
+  });
+  logger.info({ prUrl, method }, "PR merged");
+}
+
 export async function getCILogs(branch: string, cwd: string): Promise<string> {
   try {
     const { stdout } = await exec(

@@ -65,12 +65,19 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
   logger.debug({ args: args.slice(0, 4), cwd: options.cwd }, "Running claude");
 
   return new Promise<ClaudeResult>((resolve) => {
+    // Heartbeat timer — log every 30s so operator knows Ego is alive
+    const heartbeat = setInterval(() => {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      logger.info({ elapsed: `${elapsed}s`, model: options.model ?? "opus" }, "Claude still working...");
+    }, 30_000);
+
     const proc = execFile("claude", args, {
       cwd: options.cwd,
       maxBuffer: 10 * 1024 * 1024, // 10MB
       timeout: timeoutMs,
       env: { ...process.env },
     }, (error, stdout, stderr) => {
+      clearInterval(heartbeat);
       const durationMs = Date.now() - startTime;
 
       if (error) {
@@ -103,6 +110,11 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
         }
       }
 
+      logger.info(
+        { durationMs, turns: turnsUsed, cost: costUsd },
+        "Claude execution finished"
+      );
+
       resolve({
         success: true,
         output: stdout,
@@ -114,10 +126,27 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
       });
     });
 
-    // Log stderr in real-time for debugging
+    // Stream Claude stderr — surface tool usage and progress at info level
     proc.stderr?.on("data", (data: Buffer) => {
       const line = data.toString().trim();
-      if (line) logger.debug({ claude_stderr: line });
+      if (!line) return;
+
+      // Surface meaningful lines at info level, noise at debug
+      if (
+        line.includes("Tool:") ||
+        line.includes("tool_use") ||
+        line.includes("Reading") ||
+        line.includes("Writing") ||
+        line.includes("Editing") ||
+        line.includes("Running") ||
+        line.includes("Searching") ||
+        line.includes("commit") ||
+        line.includes("test")
+      ) {
+        logger.info({ claude: line }, "Claude activity");
+      } else {
+        logger.debug({ claude_stderr: line });
+      }
     });
   });
 }

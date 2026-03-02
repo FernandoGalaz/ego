@@ -10,7 +10,8 @@
   "coolify": {
     "appId": "abc123",
     "apiUrl": "https://api-dev.kubuz.ai",
-    "devUrl": "https://dev.kubuz.ai"
+    "devUrl": "https://dev.kubuz.ai",
+    "dockerImageTag": "development"
   },
   "github": {
     "repo": "FernandoGalaz/agente-agente",
