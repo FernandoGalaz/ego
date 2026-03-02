@@ -22,7 +22,9 @@ program
 program
   .command("start")
   .description("Start Ego server (webhooks + worker)")
-  .action(() => {
+  .option("-v, --verbose", "Enable debug logging")
+  .action((opts: { verbose?: boolean }) => {
+    if (opts.verbose) logger.level = "debug";
     startServer();
   });
 

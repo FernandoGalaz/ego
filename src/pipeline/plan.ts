@@ -1,6 +1,7 @@
 import { runClaude, type ClaudeResult } from "../integrations/claude.js";
 import * as linear from "../integrations/linear.js";
 import { phaseLogger } from "../utils/logger.js";
+import { buildLessonsPrompt } from "../utils/lessons.js";
 import type { PipelineContext, PhaseResult } from "./index.js";
 
 const PLAN_SCHEMA = {
@@ -129,9 +130,11 @@ export async function executePlan(ctx: PipelineContext): Promise<PhaseResult> {
 - Riesgos: incluir qué agente lo identificó y severidad
 - Incluir pasos de verificación: cómo saber que la implementación es correcta`;
 
+  const lessonsPrompt = buildLessonsPrompt(ctx.project.repo);
+
   try {
     const result = await runClaude({
-      prompt,
+      prompt: prompt + lessonsPrompt,
       cwd: ctx.worktreePath,
       model: "opus",
       maxTurns: 15,

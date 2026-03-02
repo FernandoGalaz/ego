@@ -5,6 +5,7 @@ import { initDb } from "./db/index.js";
 import { linearWebhook } from "./webhooks/linear.js";
 import { sentryWebhook } from "./webhooks/sentry.js";
 import { startWorker } from "./queue/worker.js";
+import { syncPendingTasks } from "./startup-sync.js";
 import { logger } from "./utils/logger.js";
 
 const app = new Hono();
@@ -38,7 +39,7 @@ export function startServer(): void {
       port: config.server.port,
       hostname: config.server.host,
     },
-    (info) => {
+    async (info) => {
       logger.info(
         { port: info.port, host: config.server.host },
         "Ego server started"
@@ -49,6 +50,9 @@ export function startServer(): void {
       logger.info(
         `  Webhooks: http://${config.server.host}:${info.port}/webhooks/sentry`
       );
+
+      // Sync any pending tasks from Linear
+      await syncPendingTasks();
     }
   );
 }

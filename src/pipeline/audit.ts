@@ -1,6 +1,7 @@
 import { runClaude } from "../integrations/claude.js";
 import * as linear from "../integrations/linear.js";
 import { phaseLogger } from "../utils/logger.js";
+import { buildLessonsPrompt } from "../utils/lessons.js";
 import type { PipelineContext, PhaseResult } from "./index.js";
 
 export async function executeAudit(ctx: PipelineContext): Promise<PhaseResult> {
@@ -50,9 +51,11 @@ Reporta en formato estructurado:
 - Lista de issues menores reportados (no corregidos)
 - Status final de typecheck y tests`;
 
+  const lessonsPrompt = buildLessonsPrompt(ctx.project.repo);
+
   try {
     const result = await runClaude({
-      prompt,
+      prompt: prompt + lessonsPrompt,
       cwd: ctx.worktreePath,
       model: "opus",
       maxTurns: 15,
