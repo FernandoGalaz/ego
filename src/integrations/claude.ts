@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { spawn } from "child_process";
 import { logger } from "../utils/logger.js";
 
 export interface ClaudeOptions {
@@ -34,9 +34,8 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
     args.push("--max-turns", String(options.maxTurns));
   }
 
-  if (options.outputFormat) {
-    args.push("--output-format", options.outputFormat);
-  }
+  // Always use stream-json for real-time visibility (requires --verbose with -p)
+  args.push("--output-format", "stream-json", "--verbose");
 
   if (options.jsonSchema) {
     args.push("--json-schema", JSON.stringify(options.jsonSchema));
@@ -60,93 +59,221 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
     }
   }
 
-  const timeoutMs = options.timeoutMs ?? 600_000; // 10min default
+  const timeoutMs = options.timeoutMs ?? 600_000;
 
-  logger.debug({ args: args.slice(0, 4), cwd: options.cwd }, "Running claude");
+  logger.info(
+    { model: options.model ?? "opus", maxTurns: options.maxTurns, timeout: `${timeoutMs / 1000}s`, cwd: options.cwd },
+    "Starting Claude execution"
+  );
 
   return new Promise<ClaudeResult>((resolve) => {
-    // Heartbeat timer — log every 30s so operator knows Ego is alive
+    let resolved = false;
+    let stdoutBuffer = "";
+    let resultEvent: Record<string, unknown> | null = null;
+    let structuredJsonOutput: unknown = null;
+    let turnCount = 0;
+
     const heartbeat = setInterval(() => {
       const elapsed = Math.round((Date.now() - startTime) / 1000);
-      logger.info({ elapsed: `${elapsed}s`, model: options.model ?? "opus" }, "Claude still working...");
+      logger.info({ elapsed: `${elapsed}s`, model: options.model ?? "opus", turns: turnCount }, "Claude still working...");
     }, 30_000);
 
-    const proc = execFile("claude", args, {
-      cwd: options.cwd,
-      maxBuffer: 10 * 1024 * 1024, // 10MB
-      timeout: timeoutMs,
-      env: { ...process.env },
-    }, (error, stdout, stderr) => {
-      clearInterval(heartbeat);
-      const durationMs = Date.now() - startTime;
+    // Strip CLAUDECODE env var to prevent nested session detection
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
 
-      if (error) {
-        logger.error({ error: error.message, stderr, durationMs }, "Claude execution failed");
+    const proc = spawn("claude", args, {
+      cwd: options.cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    // Parse NDJSON stream from stdout — real-time visibility
+    proc.stdout.on("data", (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString();
+
+      // Process complete lines
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        try {
+          const event = JSON.parse(trimmed) as Record<string, unknown>;
+          processStreamEvent(event);
+        } catch {
+          logger.debug({ raw: trimmed.slice(0, 200) }, "Claude raw output");
+        }
+      }
+    });
+
+    proc.stderr.on("data", (chunk: Buffer) => {
+      const line = chunk.toString().trim();
+      if (line) {
+        logger.debug({ claude_stderr: line });
+      }
+    });
+
+    function processStreamEvent(event: Record<string, unknown>): void {
+      switch (event.type) {
+        case "system":
+          logger.info(
+            { subtype: event.subtype, session: (event as Record<string, unknown>).session_id },
+            "Claude session initialized"
+          );
+          break;
+
+        case "assistant": {
+          const message = event.message as Record<string, unknown> | undefined;
+          const content = (message?.content ?? []) as Array<Record<string, unknown>>;
+
+          for (const block of content) {
+            if (block.type === "tool_use") {
+              const inputStr = JSON.stringify(block.input ?? {});
+              logger.info(
+                { tool: block.name, input: inputStr.slice(0, 150) },
+                `Claude → ${block.name}`
+              );
+
+              // Capture StructuredOutput — this is the JSON schema result
+              if (block.name === "StructuredOutput" && block.input) {
+                structuredJsonOutput = block.input;
+              }
+            }
+            if (block.type === "text") {
+              const text = (block.text as string) ?? "";
+              if (text.length > 0) {
+                logger.debug({ text: text.slice(0, 200) }, "Claude thinking");
+              }
+            }
+          }
+
+          // Count turns by stop_reason
+          if (message?.stop_reason === "end_turn" || message?.stop_reason === "tool_use") {
+            turnCount++;
+          }
+          break;
+        }
+
+        case "result":
+          resultEvent = event;
+          logger.info(
+            {
+              subtype: event.subtype,
+              turns: event.num_turns,
+              cost: event.cost_usd,
+              duration: event.duration_ms,
+            },
+            "Claude execution result"
+          );
+          break;
+      }
+    }
+
+    // Timeout handling — SIGTERM then SIGKILL
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        logger.error(
+          { elapsed: `${elapsed}s`, turns: turnCount },
+          "Claude timed out — killing process"
+        );
+        proc.kill("SIGTERM");
+        setTimeout(() => {
+          try { proc.kill("SIGKILL"); } catch { /* already dead */ }
+        }, 5000);
+      }
+    }, timeoutMs);
+
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      clearInterval(heartbeat);
+      if (!resolved) {
+        resolved = true;
+        logger.error({ error: err.message }, "Claude process error");
         resolve({
           success: false,
-          output: stderr || error.message,
-          error: error.message,
+          output: err.message,
+          error: err.message,
+          durationMs: Date.now() - startTime,
+        });
+      }
+    });
+
+    proc.on("close", (code, signal) => {
+      clearTimeout(timer);
+      clearInterval(heartbeat);
+      if (resolved) return;
+      resolved = true;
+      const durationMs = Date.now() - startTime;
+
+      // Process any remaining buffer
+      if (stdoutBuffer.trim()) {
+        try {
+          const event = JSON.parse(stdoutBuffer.trim()) as Record<string, unknown>;
+          processStreamEvent(event);
+        } catch { /* ignore */ }
+      }
+
+      // Killed by signal (timeout or external)
+      if (signal) {
+        resolve({
+          success: false,
+          output: `Killed by signal: ${signal}`,
+          error: `Claude killed by ${signal} after ${Math.round(durationMs / 1000)}s`,
           durationMs,
         });
         return;
       }
 
-      // Parse JSON output if requested
+      // Non-zero exit without result
+      if (code !== 0 && !resultEvent) {
+        resolve({
+          success: false,
+          output: `Process exited with code ${code}`,
+          error: `Claude exited with code ${code}`,
+          durationMs,
+        });
+        return;
+      }
+
+      // Extract result from stream
+      let output = "";
       let structuredOutput: unknown = undefined;
       let sessionId: string | undefined;
       let turnsUsed: number | undefined;
       let costUsd: number | undefined;
 
-      if (options.outputFormat === "json") {
-        try {
-          const parsed = JSON.parse(stdout);
-          structuredOutput = parsed.result ?? parsed;
-          sessionId = parsed.session_id;
-          turnsUsed = parsed.num_turns;
-          costUsd = parsed.cost_usd;
-        } catch {
-          // Output might not be valid JSON, treat as plain text
-          logger.warn("Failed to parse claude JSON output, treating as text");
-        }
+      if (resultEvent) {
+        const rawResult = resultEvent.result;
+        output = typeof rawResult === "string" ? rawResult : JSON.stringify(rawResult);
+        // Prefer StructuredOutput tool capture over result text
+        structuredOutput = structuredJsonOutput ?? rawResult;
+        sessionId = resultEvent.session_id as string | undefined;
+        turnsUsed = resultEvent.num_turns as number | undefined;
+        costUsd = resultEvent.cost_usd as number | undefined;
       }
 
+      const isError = resultEvent?.subtype === "error_max_turns" ||
+                      resultEvent?.is_error === true;
+
       logger.info(
-        { durationMs, turns: turnsUsed, cost: costUsd },
+        { durationMs, turns: turnsUsed, cost: costUsd, subtype: resultEvent?.subtype },
         "Claude execution finished"
       );
 
       resolve({
-        success: true,
-        output: stdout,
+        success: !isError,
+        output,
         structuredOutput,
         sessionId,
         turnsUsed,
         costUsd,
         durationMs,
+        ...(isError ? { error: `Claude ended with: ${resultEvent?.subtype}` } : {}),
       });
-    });
-
-    // Stream Claude stderr — surface tool usage and progress at info level
-    proc.stderr?.on("data", (data: Buffer) => {
-      const line = data.toString().trim();
-      if (!line) return;
-
-      // Surface meaningful lines at info level, noise at debug
-      if (
-        line.includes("Tool:") ||
-        line.includes("tool_use") ||
-        line.includes("Reading") ||
-        line.includes("Writing") ||
-        line.includes("Editing") ||
-        line.includes("Running") ||
-        line.includes("Searching") ||
-        line.includes("commit") ||
-        line.includes("test")
-      ) {
-        logger.info({ claude: line }, "Claude activity");
-      } else {
-        logger.debug({ claude_stderr: line });
-      }
     });
   });
 }

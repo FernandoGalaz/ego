@@ -54,8 +54,8 @@ Reporta: archivos modificados, commits creados, tests ejecutados (pass/fail), cu
       prompt: prompt + lessonsPrompt,
       cwd: ctx.worktreePath,
       model: "opus",
-      maxTurns: 30,
-      timeoutMs: 1_200_000, // 20 min
+      maxTurns: 50,
+      timeoutMs: 1_800_000, // 30 min
       outputFormat: "json",
       dangerouslySkipPermissions: true,
     });

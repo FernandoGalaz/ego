@@ -139,7 +139,7 @@ ${ctx.comments ?? ""}
       cwd: ctx.worktreePath,
       model: "opus",
       maxTurns: 15,
-      timeoutMs: 600_000, // 10 min
+      timeoutMs: 900_000, // 15 min
       outputFormat: "json",
       jsonSchema: PLAN_SCHEMA,
       dangerouslySkipPermissions: true,
