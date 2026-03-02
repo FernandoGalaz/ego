@@ -42,6 +42,7 @@ export interface PipelineContext {
   sourceId?: string;
   title: string;
   description?: string;
+  comments?: string;
   branch: string;
   worktreePath: string;
   planJson?: string;

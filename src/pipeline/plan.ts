@@ -110,6 +110,7 @@ export async function executePlan(ctx: PipelineContext): Promise<PhaseResult> {
 - Descripción: ${ctx.description ?? "Sin descripción adicional"}
 - Fuente: ${ctx.source}
 - Proyecto: ${ctx.projectName}
+${ctx.comments ?? ""}
 
 ## Instrucciones
 

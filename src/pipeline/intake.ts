@@ -8,6 +8,14 @@ export async function executeIntake(ctx: PipelineContext): Promise<PhaseResult> 
 
   try {
     if (ctx.source === "linear" && ctx.sourceId) {
+      // Fetch comments before changing state (includes user review feedback)
+      const comments = await linear.getComments(ctx.sourceId);
+      const formattedComments = linear.formatCommentsForPrompt(comments);
+      if (formattedComments) {
+        ctx.comments = formattedComments;
+        log.info({ count: comments.length }, "Loaded comments from Linear issue");
+      }
+
       // Update Linear state to "Ego Working"
       await linear.updateIssueState(ctx.sourceId, "Ego Working");
       await linear.addComment(

@@ -16,6 +16,7 @@ export async function executeDev(ctx: PipelineContext): Promise<PhaseResult> {
 
 ## Plan a implementar
 ${ctx.planJson}
+${ctx.comments ?? ""}
 
 ## Instrucciones
 

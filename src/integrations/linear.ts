@@ -108,6 +108,50 @@ export async function addComment(issueId: string, body: string): Promise<void> {
   logger.debug({ issueId }, "Linear comment added");
 }
 
+export interface LinearComment {
+  body: string;
+  user: { name: string } | null;
+  createdAt: string;
+}
+
+export async function getComments(issueId: string): Promise<LinearComment[]> {
+  const data = await gql<{
+    issue: { comments: { nodes: LinearComment[] } };
+  }>(
+    `query($id: String!) {
+      issue(id: $id) {
+        comments(orderBy: createdAt) {
+          nodes { body user { name } createdAt }
+        }
+      }
+    }`,
+    { id: issueId }
+  );
+  return data.issue.comments.nodes;
+}
+
+export function formatCommentsForPrompt(comments: LinearComment[]): string {
+  if (comments.length === 0) return "";
+
+  // Filter out Ego's own comments
+  const userComments = comments.filter(
+    (c) => !c.body.startsWith("🤖") && !c.body.startsWith("📊") &&
+           !c.body.startsWith("📋") && !c.body.startsWith("🔨") &&
+           !c.body.startsWith("🔍") && !c.body.startsWith("✅") &&
+           !c.body.startsWith("❌") && !c.body.startsWith("🏥")
+  );
+
+  if (userComments.length === 0) return "";
+
+  const formatted = userComments.map((c) => {
+    const author = c.user?.name ?? "Unknown";
+    const date = c.createdAt.split("T")[0];
+    return `- **${author}** (${date}): ${c.body}`;
+  }).join("\n");
+
+  return `\n## Comentarios del equipo\n${formatted}`;
+}
+
 export async function assignIssue(issueId: string, userId: string): Promise<void> {
   await gql(
     `mutation($id: String!, $assigneeId: String!) {
