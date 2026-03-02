@@ -159,6 +159,82 @@ program
     await closeDb();
   });
 
+// ─── ego retry ──────────────────────────────────────
+program
+  .command("retry")
+  .description("Retry a failed task from its failed phase")
+  .argument("<taskId>", "Task ID to retry")
+  .option("--from-phase <phase>", "Override which phase to resume from")
+  .action(async (taskId: string, opts: { fromPhase?: string }) => {
+    initDb();
+    const db = getDb();
+
+    const rows = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
+      .limit(1);
+
+    if (rows.length === 0) {
+      console.log(`\nTask ${taskId} not found.\n`);
+      await closeDb();
+      return;
+    }
+
+    const task = rows[0];
+
+    if (task.status !== "failed") {
+      console.log(`\nTask ${taskId} is not failed (status: ${task.status}). Only failed tasks can be retried.\n`);
+      await closeDb();
+      return;
+    }
+
+    const validPhases = ["intake", "worktree", "plan", "dev", "audit", "ci", "health", "report"];
+    const resumePhase = opts.fromPhase ?? task.failedPhase;
+
+    if (!resumePhase) {
+      console.log(`\nTask ${taskId} has no failed phase recorded. Use --from-phase to specify.\n`);
+      await closeDb();
+      return;
+    }
+
+    if (!validPhases.includes(resumePhase)) {
+      console.log(`\nInvalid phase "${resumePhase}". Valid phases: ${validPhases.join(", ")}\n`);
+      await closeDb();
+      return;
+    }
+
+    // Reset task status for retry
+    await db
+      .update(schema.tasks)
+      .set({
+        status: "queued",
+        failedPhase: null,
+        completedAt: null,
+        result: null,
+      })
+      .where(eq(schema.tasks.id, taskId));
+
+    await enqueueTask({
+      taskId: task.id,
+      project: task.project,
+      source: task.source,
+      sourceId: task.sourceId ?? undefined,
+      title: task.title,
+      description: task.description ?? undefined,
+      priority: task.priority,
+      resumeFromPhase: resumePhase,
+    });
+
+    logger.info({ taskId, resumePhase }, "Task re-enqueued for retry");
+    console.log(`\nTask ${taskId} re-enqueued for retry`);
+    console.log(`Resuming from phase: ${resumePhase}`);
+    console.log(`Previous phases will be skipped.\n`);
+
+    // Start worker if not already running
+    startWorker();
+  });
+
 // ─── ego cancel ─────────────────────────────────────
 program
   .command("cancel")

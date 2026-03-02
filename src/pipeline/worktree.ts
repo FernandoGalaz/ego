@@ -67,6 +67,55 @@ export async function executeWorktree(ctx: PipelineContext): Promise<PhaseResult
   }
 }
 
+export async function reuseWorktree(ctx: PipelineContext): Promise<PhaseResult> {
+  const log = phaseLogger(ctx.taskId, "worktree-reuse");
+  const start = Date.now();
+
+  const repoDir = ctx.project.repo;
+
+  try {
+    // Verify worktree path exists on disk
+    if (!ctx.worktreePath || !existsSync(ctx.worktreePath)) {
+      return {
+        success: false,
+        error: `Worktree not found at ${ctx.worktreePath} — cannot resume`,
+        durationMs: Date.now() - start,
+      };
+    }
+
+    // Verify it's a valid git repo
+    await exec("git", ["status", "--porcelain"], { cwd: ctx.worktreePath });
+
+    // Re-acquire lock (lock.ts allows re-acquire for same taskId)
+    if (!acquireLock(repoDir, ctx.taskId, ctx.projectName)) {
+      return {
+        success: false,
+        error: "Failed to re-acquire lock for retry",
+        durationMs: Date.now() - start,
+      };
+    }
+
+    // Fetch latest from origin
+    log.info("Fetching latest from origin");
+    await exec("git", ["fetch", "origin"], { cwd: repoDir });
+
+    log.info({ worktreePath: ctx.worktreePath }, "Existing worktree reused for retry");
+
+    return {
+      success: true,
+      durationMs: Date.now() - start,
+    };
+  } catch (err) {
+    const error = err as Error;
+    log.error({ error: error.message }, "Worktree reuse failed");
+    return {
+      success: false,
+      error: error.message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
 export async function cleanupWorktree(ctx: PipelineContext): Promise<void> {
   const log = phaseLogger(ctx.taskId, "worktree-cleanup");
 

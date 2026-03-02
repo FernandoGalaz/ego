@@ -28,7 +28,13 @@ export function acquireLock(repoDir: string, taskId: string, project: string): b
   if (existsSync(lp)) {
     const existing = readLock(repoDir);
 
-    if (existing && !isProcessAlive(existing.pid)) {
+    if (existing && existing.taskId === taskId) {
+      logger.info(
+        { taskId, repoDir },
+        "Re-acquiring lock for same task (retry)"
+      );
+      releaseLock(repoDir);
+    } else if (existing && !isProcessAlive(existing.pid)) {
       logger.warn(
         { existing, repoDir },
         "Stale lock detected (PID dead) — releasing automatically"

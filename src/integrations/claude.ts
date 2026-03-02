@@ -150,8 +150,13 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
             }
           }
 
-          // Count turns by stop_reason
-          if (message?.stop_reason === "end_turn" || message?.stop_reason === "tool_use") {
+          // Count turns — use stop_reason if available, otherwise count
+          // assistant messages with tool_use content as turns
+          const stopReason = message?.stop_reason ?? (event as Record<string, unknown>).stop_reason;
+          if (stopReason === "end_turn" || stopReason === "tool_use") {
+            turnCount++;
+          } else if (content.some((b) => b.type === "tool_use")) {
+            // Fallback: count any assistant message with tool calls as a turn
             turnCount++;
           }
           break;

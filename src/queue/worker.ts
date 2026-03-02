@@ -28,8 +28,12 @@ export function startWorker(): Worker {
       log.info("Starting pipeline execution");
 
       try {
-        await executePipeline(job.data);
-        log.info("Pipeline completed successfully");
+        const pipelineResult = await executePipeline(job.data);
+        if (pipelineResult === "failed") {
+          log.warn("Pipeline finished with failure");
+        } else {
+          log.info("Pipeline completed successfully");
+        }
       } catch (err) {
         const error = err as Error;
         log.error({ error: error.message }, "Pipeline failed");

@@ -10,6 +10,7 @@ export interface TaskJobData {
   title: string;
   description?: string;
   priority: number; // 0-4, lower = higher priority
+  resumeFromPhase?: string; // Phase name to resume from (retry)
 }
 
 let _queue: Queue<TaskJobData> | null = null;

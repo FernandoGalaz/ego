@@ -8,7 +8,7 @@ import * as linear from "../integrations/linear.js";
 import type { TaskJobData } from "../queue/index.js";
 
 import { executeIntake } from "./intake.js";
-import { executeWorktree } from "./worktree.js";
+import { executeWorktree, reuseWorktree } from "./worktree.js";
 import { executePlan } from "./plan.js";
 import { executeDev } from "./dev.js";
 import { executeAudit } from "./audit.js";
@@ -87,9 +87,38 @@ async function updateTask(
   await db.update(schema.tasks).set(updates).where(eq(schema.tasks.id, taskId));
 }
 
-export async function executePipeline(jobData: TaskJobData): Promise<void> {
+async function restoreContext(ctx: PipelineContext, resumeFromPhase: string): Promise<void> {
+  const log = phaseLogger(ctx.taskId, "pipeline");
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, ctx.taskId))
+    .limit(1);
+
+  if (rows.length === 0) {
+    throw new Error(`Task ${ctx.taskId} not found in DB`);
+  }
+
+  const task = rows[0];
+
+  // Restore saved context from previous run
+  if (task.worktreePath) ctx.worktreePath = task.worktreePath;
+  if (task.planJson) ctx.planJson = task.planJson;
+  if (task.branch) ctx.branch = task.branch;
+  if (task.turnsUsed) ctx.totalTurns = task.turnsUsed;
+
+  log.info(
+    { resumeFromPhase, worktreePath: ctx.worktreePath, branch: ctx.branch },
+    "Restored context from previous run"
+  );
+}
+
+export async function executePipeline(jobData: TaskJobData): Promise<"completed" | "failed"> {
   const log = phaseLogger(jobData.taskId, "pipeline");
   const project = loadProject(jobData.project);
+  const resumeFromPhase = jobData.resumeFromPhase as PhaseName | undefined;
 
   const ctx: PipelineContext = {
     taskId: jobData.taskId,
@@ -103,6 +132,11 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
     worktreePath: "",
     totalTurns: 0,
   };
+
+  // If resuming, restore context from DB before starting
+  if (resumeFromPhase) {
+    await restoreContext(ctx, resumeFromPhase);
+  }
 
   await updateTask(ctx.taskId, {
     status: "working",
@@ -130,9 +164,36 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
     { name: "report", execute: executeReport },
   ];
 
+  const phaseNames = phases.map((p) => p.name);
+  const resumeIndex = resumeFromPhase ? phaseNames.indexOf(resumeFromPhase) : -1;
+
+  // If resuming from a phase that needs worktree, re-acquire it
+  if (resumeFromPhase && resumeIndex > 1) {
+    const reuseResult = await reuseWorktree(ctx);
+    if (!reuseResult.success) {
+      log.error({ error: reuseResult.error }, "Failed to reuse worktree for retry");
+      await updateTask(ctx.taskId, {
+        status: "failed",
+        failedPhase: resumeFromPhase,
+        result: reuseResult.error ?? "Worktree reuse failed",
+        completedAt: new Date().toISOString(),
+      });
+      return "failed";
+    }
+  }
+
   const pipelineStart = Date.now();
 
   for (const phase of phases) {
+    // Skip phases before the resume point
+    if (resumeFromPhase && phaseNames.indexOf(phase.name) < resumeIndex) {
+      log.info({ phase: phase.name }, `⏭ Skipping phase: ${phase.name} (resuming)`);
+      await logPhase(ctx.taskId, phase.name, "completed", {
+        success: true,
+        output: "Skipped (retry resume)",
+      });
+      continue;
+    }
     const elapsed = Math.round((Date.now() - pipelineStart) / 1000);
     log.info({ phase: phase.name, pipelineElapsed: `${elapsed}s` }, `▶ Starting phase: ${phase.name}`);
     await updateTask(ctx.taskId, { currentPhase: phase.name });
@@ -175,7 +236,7 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
           turnsUsed: ctx.totalTurns,
         });
 
-        return;
+        return "failed";
       }
 
       await logPhase(ctx.taskId, phase.name, "completed", result);
@@ -219,7 +280,7 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
         failedPhase: phase.name,
       });
 
-      return;
+      return "failed";
     }
   }
 
@@ -240,4 +301,5 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
   });
 
   log.info({ totalTurns: ctx.totalTurns }, "Pipeline completed successfully");
+  return "completed";
 }
