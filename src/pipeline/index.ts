@@ -4,6 +4,7 @@ import { loadProject, type ProjectConfig } from "../config.js";
 import { phaseLogger } from "../utils/logger.js";
 import { recordFailure } from "../utils/safety.js";
 import { notify } from "../integrations/notifications.js";
+import * as linear from "../integrations/linear.js";
 import type { TaskJobData } from "../queue/index.js";
 
 import { executeIntake } from "./intake.js";
@@ -150,6 +151,16 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
           completedAt: new Date().toISOString(),
         });
 
+        // Rollback Linear state so it can be retried
+        if (ctx.source === "linear" && ctx.sourceId) {
+          try {
+            await linear.updateIssueState(ctx.sourceId, "Ready for Ego");
+            log.info("Linear issue rolled back to Ready for Ego");
+          } catch {
+            log.warn("Failed to rollback Linear issue state");
+          }
+        }
+
         await notify({
           taskId: ctx.taskId,
           project: ctx.projectName,
@@ -180,6 +191,16 @@ export async function executePipeline(jobData: TaskJobData): Promise<void> {
         turnsUsed: ctx.totalTurns,
         completedAt: new Date().toISOString(),
       });
+
+      // Rollback Linear state so it can be retried
+      if (ctx.source === "linear" && ctx.sourceId) {
+        try {
+          await linear.updateIssueState(ctx.sourceId, "Ready for Ego");
+          log.info("Linear issue rolled back to Ready for Ego");
+        } catch {
+          log.warn("Failed to rollback Linear issue state");
+        }
+      }
 
       await notify({
         taskId: ctx.taskId,

@@ -34,7 +34,7 @@ async function fetchReadyIssues(teamId: string): Promise<LinearIssueNode[]> {
           }
         }
       }`,
-      variables: { id: teamId },
+      variables: { teamId },
     }),
     signal: AbortSignal.timeout(15_000),
   });

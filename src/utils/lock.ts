@@ -13,16 +13,34 @@ function lockPath(repoDir: string): string {
   return join(repoDir, ".ego-lock");
 }
 
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function acquireLock(repoDir: string, taskId: string, project: string): boolean {
   const lp = lockPath(repoDir);
 
   if (existsSync(lp)) {
     const existing = readLock(repoDir);
-    logger.error(
-      { existing, repoDir },
-      "Lock already exists — another task is running or a previous run didn't clean up. Use 'ego unlock' to force remove."
-    );
-    return false;
+
+    if (existing && !isProcessAlive(existing.pid)) {
+      logger.warn(
+        { existing, repoDir },
+        "Stale lock detected (PID dead) — releasing automatically"
+      );
+      releaseLock(repoDir);
+    } else {
+      logger.error(
+        { existing, repoDir },
+        "Lock already exists — another task is running. Use 'ego unlock' to force remove."
+      );
+      return false;
+    }
   }
 
   const info: LockInfo = {
